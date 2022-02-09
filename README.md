@@ -1,7 +1,7 @@
 # lstuff
 
 This is a collection of C programs that I have written as lab assignments in the
-past. No guarantee is made on the logical soundness, elegance or the 
+past. No guarantee is made on the logical soundness, elegance, the 
 correctness of these programs, or even if these programs run, but these were
 enough to make me pass the assignments.
 
