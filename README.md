@@ -44,5 +44,4 @@ enough to make me pass the assignments.
   
   * `river.c` - River crossing problem. (page 160)
   
-  * `search_insert_delete.c` - Search-Insert-Delete problem from the book of 
-    semaphores. (page 165)
+  * `search_insert_delete.c` - Search-Insert-Delete problem. (page 165)
