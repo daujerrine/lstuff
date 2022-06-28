@@ -872,6 +872,337 @@ void print_firstfollow(FirstFollowTable *ft)
     printf("\n");
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * Prediction Table Calculator
+ * -----------------------------------------------------------------------------
+ */
+
+void grammar_generate_prediction_table(FirstFollowTable *ft,
+                                       PredictionTable *table,
+                                       Grammar *g)
+{
+    int epsilon_flag;
+    int epsilon_set;
+
+    for (int prodset = 0; prodset < g->size; prodset++) {
+        epsilon_flag = 0;
+        // printf("Processing %c\n", g->set[prodset].symbol);
+        for (int  i = 0;
+             i < ft->ffr[N_INDEX(g->set[prodset].symbol)].first_top;
+             i++) {
+            // printf("Getting %c\n", ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].data);
+
+            if (ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].data == '@') {
+                // printf("Epsilon. Skipping\n");
+                epsilon_flag = 1;
+                epsilon_set = i;
+                continue;
+            }
+
+            int symbol_i;
+
+            // Insert or get terminal index
+
+            for (symbol_i = 0; symbol_i < table->num_symbols; symbol_i++) {
+                if (table->symbols[symbol_i] == ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].data) {
+                    // printf("Found %c\n", ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].data);
+                    break;
+                }
+            }
+
+            if (symbol_i == table->num_symbols) {
+                table->num_symbols++;
+                table->symbols[table->num_symbols - 1] = ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].data;
+                // printf("Inserting %c\n", ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].data);
+            }
+
+            int nonterminal_i;
+
+            // Insert or get nonterminal symbol index
+
+            for (nonterminal_i = 0; nonterminal_i < table->num_nonterminals; nonterminal_i++) {
+                if (table->nonterminals[nonterminal_i] == g->set[prodset].symbol) {
+                    break;
+                }
+            }
+
+            if (nonterminal_i == table->num_nonterminals) {
+                table->num_nonterminals++;
+                table->nonterminals[table->num_nonterminals - 1] = g->set[prodset].symbol;
+            }
+
+            // printf("><><>< %d\n", ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].production);
+            for (int k = 0; k < ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].productions_top; k++) {
+                table->productions_top[nonterminal_i][symbol_i]++;
+                table->productions[nonterminal_i][symbol_i][table->productions_top[nonterminal_i][symbol_i] - 1] =
+                ft->ffr[N_INDEX(g->set[prodset].symbol)].first[i].productions[k];
+            }
+        }
+
+        // If epsilon is available, add in the follow terms
+        if (epsilon_flag) {
+            for (int i = 0; i < ft->ffr[N_INDEX(g->set[prodset].symbol)].follow_top; i++) {
+
+                int symbol_i;
+
+                // Insert or get terminal index
+
+                for (symbol_i = 0; symbol_i < table->num_symbols; symbol_i++) {
+                    if (table->symbols[symbol_i] == ft->ffr[N_INDEX(g->set[prodset].symbol)].follow[i]) {
+                        // printf("Found e %c\n", ft->ffr[N_INDEX(g->set[prodset].symbol)].follow[i]);
+                        break;
+                    }
+                }
+
+                if (symbol_i == table->num_symbols) {
+                    table->num_symbols++;
+                    table->symbols[table->num_symbols - 1] = ft->ffr[N_INDEX(g->set[prodset].symbol)].follow[i];
+                    // printf("Inserting e %c\n", ft->ffr[N_INDEX(g->set[prodset].symbol)].follow[symbol_i]);
+                }
+
+                int nonterminal_i;
+
+                // Insert or get nonterminal symbol index
+
+                for (nonterminal_i = 0; nonterminal_i < table->num_nonterminals; nonterminal_i++) {
+                    if (table->nonterminals[nonterminal_i] == g->set[prodset].symbol) {
+                        break;
+                    }
+                }
+
+                if (nonterminal_i == table->num_nonterminals) {
+                    table->num_nonterminals++;
+                    table->nonterminals[table->num_nonterminals - 1] = g->set[prodset].symbol;
+                }
+
+                // We simply represent the epsilon production as -1.
+                // table->productions_top[nonterminal_i][symbol_i]++;
+                // table->productions[nonterminal_i][symbol_i][table->productions_top[nonterminal_i][symbol_i] - 1] = -1;
+
+                for (int k = 0; k < ft->ffr[N_INDEX(g->set[prodset].symbol)].first[epsilon_set].productions_top; k++) {
+                    // Check for duplicated
+                    for (int m = 0; m < table->productions_top[nonterminal_i][symbol_i]; m++) {
+                        if (table->productions[nonterminal_i][symbol_i][m] == ft->ffr[N_INDEX(g->set[prodset].symbol)].first[epsilon_set].productions[k])
+                            goto next_thing;
+                    }
+                    table->productions_top[nonterminal_i][symbol_i]++;
+                    table->productions[nonterminal_i][symbol_i][table->productions_top[nonterminal_i][symbol_i] - 1] =
+                    ft->ffr[N_INDEX(g->set[prodset].symbol)].first[epsilon_set].productions[k];
+next_thing:
+                    continue;
+                }
+            }
+        }
+    }
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Prediction Table Printer
+ * -----------------------------------------------------------------------------
+ */
+
+int prediction_table_print(Grammar *g, PredictionTable *table)
+{
+    printf("NT\t");
+
+    char is_ll1 = 1;
+
+    for (int i = 0; i < table->num_symbols; i++) {
+        printf("%c\t", table->symbols[i]);
+    }
+
+    printf("\n");
+
+    for (int i = 0; i < table->num_nonterminals; i++) {
+        printf("%c\t", table->nonterminals[i]);
+
+        for (int j = 0; j < table->num_symbols; j++) {
+            if (table->productions_top[i][j] == 0) {
+                printf("_");
+            } else {
+                if (table->productions_top[i][j] > 1) {
+                    is_ll1 = 0;
+                }
+                // printf("(%d)", table->productions[i][j]);
+                for (int k = 0; k < table->productions_top[i][j] - 1; k++) {
+                    production_print_small(&g->set[grammar_find(g, table->nonterminals[i])].productions[table->productions[i][j][k]]);
+                    printf(",");
+                }
+
+                production_print_small(&g->set[grammar_find(g, table->nonterminals[i])].productions[table->productions[i][j][table->productions_top[i][j] - 1]]);
+            }
+            printf("\t");
+        }
+
+        printf("\n");
+    }
+
+    printf("Here:\n    '@' is the epsilon symbol."
+           "\n    '$' is the end-of-stream symbol."
+           "\n    '_' indicates a lack of a production.");
+
+    if (!is_ll1) {
+        printf("\n\nGrammar is NOT an LL1 Grammar.\nMultiple Deriviations are shown separated by commas.");
+    } else {
+        printf("\n\nGrammar is an LL1 Grammar.");
+    }
+    printf("\n");
+
+    return is_ll1;
+}
+
+
+/*
+ * -----------------------------------------------------------------------------
+ * LL1 parser implementation (grammar_input_check)
+ * -----------------------------------------------------------------------------
+ */
+
+Production *get_prediction(Grammar *g, PredictionTable *p, char nonterminal, char symbol)
+{
+    int nt_index = -1;
+    int s_index = -1;
+    int prod = -1;
+    int prodset = grammar_find(g, nonterminal);
+
+    if (prodset == -1) {
+        printf("Nonterminal does not exist.\n");
+    }
+
+
+    for (int i = 0; i < p->num_nonterminals; i++) {
+        if (p->nonterminals[i] == nonterminal) {
+            nt_index = i;
+            break;
+        }
+    }
+
+    if (nt_index == -1) {
+        printf("NT not found\n");
+        return NULL;
+    }
+
+    for (int i = 0; i < p->num_symbols; i++) {
+        if (p->symbols[i] == symbol) {
+            s_index = i;
+            break;
+        }
+    }
+
+    if (s_index == -1) {
+        printf("Symbol not found\n");
+        return NULL;
+    }
+
+    if (p->productions_top[nt_index][s_index] != 1) {
+        printf("No valid prediction exists for the given symbol.\n");
+        return NULL;
+    }
+
+    prod = p->productions[nt_index][s_index][0];
+
+    return &g->set[prodset].productions[prod];
+}
+
+void grammar_input_check(Grammar *g, PredictionTable *p, char *input)
+{
+    // Stack
+    char pred_stack[MAXBUF];
+    int pred_stack_top = 0;
+
+    // Current symbol.
+    char curr_symbol = '\0';
+
+    int input_offset = 0;
+
+    // Iteration number of the loop. Just for cosmetic purposes.
+    int iter_count = 1;
+
+    // Production pointer
+    Production *prod_ptr;
+
+    // Push the starting symbol to the stack.
+    pred_stack_top++;
+    pred_stack[pred_stack_top - 1] = g->starting_symbol;
+
+    if (input[0] == '\0') {
+        printf("Empty String. Exiting.\n");
+        return;
+    }
+
+
+    while (pred_stack_top > 0) {
+        // Print iteration Number
+        printf("ITERATION NO.: %d\n", iter_count);
+
+        // Print Stack Number
+        printf("STACK        : ");
+        printf("[ ");
+        for (int i = 0; i < pred_stack_top; i++) {
+            printf("%c ", pred_stack[i]);
+        }
+        printf("]\n");
+
+        // *** Because of fgets, we assume input ends on a '\n'
+        if (input[input_offset] == '\n' || input[input_offset] == '\0') {
+            printf("INPUT SYMBOL : Input Exhausted ('$')\n");
+        } else {
+            printf("INPUT SYMBOL : '%c'\n", input[input_offset]);
+        }
+
+        // Pop stack and put in current symbol
+        curr_symbol = pred_stack[pred_stack_top - 1];
+        pred_stack_top--;
+
+        if (is_nonterminal(curr_symbol)) {
+            printf("Nonterminal '%c' expected.\n", curr_symbol);
+
+            // *** Because of fgets, we assume input ends on a '\n'
+            if (input[input_offset] == '\n' || input[input_offset] == '\0') {
+                printf("(Input has been exhausted. This will be represented as the '$' symbol)\n");
+                prod_ptr = get_prediction(g, p, curr_symbol, '$');
+            } else {
+                prod_ptr = get_prediction(g, p, curr_symbol, input[input_offset]);
+            }
+
+            if (prod_ptr == NULL) {
+                printf("No matching production found for input symbol. Input Rejected.\n");
+                return;
+            }
+
+            if (prod_ptr->size == 0) {
+                printf("Epsilon Production predicted. No input consumed. Nothing added to stack.\n");
+            } else {
+                printf("Expanding to predicted production '");
+                production_print_small(prod_ptr);
+                printf("'.\n");
+                // Put elements in stack in reverse order
+                for (int i = prod_ptr->size - 1; i >= 0; i--) {
+                    pred_stack_top++;
+                    pred_stack[pred_stack_top - 1] = prod_ptr->symbols[i];
+                }
+            }
+        } else {
+            printf("Terminal '%c' expected.\n", curr_symbol);
+
+            if (curr_symbol != input[input_offset]) {
+                printf("Input symbol is not equal to expected terminal symbol. Input Rejected.\n");
+                return;
+            }
+
+            printf("Input symbol matches with expected terminal symbol. Proceeding.\n");
+            input_offset++;
+        }
+
+        printf("\n");
+        iter_count++;
+    }
+
+    printf("Stack Empty. Input Accepted.\n");
+}
+
 // Input Flush
 void flush()
 {
